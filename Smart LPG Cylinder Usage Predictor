@@ -1,0 +1,183 @@
+#include "HX711.h"
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// ---------------- PIN CONFIGURATION ----------------
+#define HX711_DT     4
+#define HX711_SCK    5
+
+#define GREEN_LED    19
+#define YELLOW_LED   23
+#define RED_LED      27
+#define BUZZER       18
+
+// ---------------- LCD ----------------
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// ---------------- HX711 ----------------
+HX711 scale;
+
+// ---------------- PROJECT SETTINGS ----------------
+#define EMPTY_CYLINDER     5.0
+#define LPG_CAPACITY       10.0
+#define DAILY_CONSUMPTION  0.5
+
+// Calibration factor
+// Change this value after calibrating the real load cell
+#define CALIBRATION_FACTOR 1.0
+
+void setup()
+{
+  Serial.begin(115200);
+
+  // LED and buzzer pins
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(YELLOW_LED, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
+  pinMode(BUZZER, OUTPUT);
+
+  // Turn OFF outputs initially
+  digitalWrite(GREEN_LED, LOW);
+  digitalWrite(YELLOW_LED, LOW);
+  digitalWrite(RED_LED, LOW);
+  digitalWrite(BUZZER, LOW);
+
+  // Initialize LCD
+  lcd.init();
+  lcd.backlight();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Smart LPG");
+  lcd.setCursor(0, 1);
+  lcd.print("Predictor");
+  delay(2000);
+
+  // Initialize HX711
+  scale.begin(HX711_DT, HX711_SCK);
+  scale.set_scale(CALIBRATION_FACTOR);
+  scale.tare();
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("System Ready");
+  delay(1500);
+}
+
+void loop()
+{
+  // ---------------- READ WEIGHT ----------------
+  float totalWeight = scale.get_units(5);
+
+  // Prevent negative readings
+  if (totalWeight < 0)
+  {
+    totalWeight = 0;
+  }
+
+  // ---------------- CALCULATE LPG WEIGHT ----------------
+  float lpgWeight = totalWeight - EMPTY_CYLINDER;
+
+  if (lpgWeight < 0)
+  {
+    lpgWeight = 0;
+  }
+
+  // Limit LPG weight to cylinder capacity
+  if (lpgWeight > LPG_CAPACITY)
+  {
+    lpgWeight = LPG_CAPACITY;
+  }
+
+  // ---------------- CALCULATE LPG PERCENTAGE ----------------
+  float lpgPercentage =
+      (lpgWeight / LPG_CAPACITY) * 100.0;
+
+  // ---------------- CALCULATE DAYS LEFT ----------------
+  int daysLeft =
+      (int)ceil(lpgWeight / DAILY_CONSUMPTION);
+
+  // ---------------- LPG LEVEL ----------------
+  String lpgLevel;
+
+  if (lpgPercentage > 50)
+  {
+    lpgLevel = "HIGH";
+  }
+  else if (lpgPercentage >= 20)
+  {
+    lpgLevel = "MEDIUM";
+  }
+  else
+  {
+    lpgLevel = "LOW";
+  }
+
+  // ---------------- LED AND BUZZER CONTROL ----------------
+
+  // Turn everything OFF first
+  digitalWrite(GREEN_LED, LOW);
+  digitalWrite(YELLOW_LED, LOW);
+  digitalWrite(RED_LED, LOW);
+  digitalWrite(BUZZER, LOW);
+
+  if (lpgLevel == "HIGH")
+  {
+    digitalWrite(GREEN_LED, HIGH);
+  }
+  else if (lpgLevel == "MEDIUM")
+  {
+    digitalWrite(YELLOW_LED, HIGH);
+  }
+  else
+  {
+    digitalWrite(RED_LED, HIGH);
+    digitalWrite(BUZZER, HIGH);
+  }
+
+  // ---------------- SERIAL MONITOR ----------------
+  Serial.println("----------------------------");
+
+  Serial.print("Total Weight: ");
+  Serial.print(totalWeight, 2);
+  Serial.println(" kg");
+
+  Serial.print("LPG Weight: ");
+  Serial.print(lpgWeight, 2);
+  Serial.println(" kg");
+
+  Serial.print("LPG Percentage: ");
+  Serial.print(lpgPercentage, 1);
+  Serial.println("%");
+
+  Serial.print("LPG Level: ");
+  Serial.println(lpgLevel);
+
+  Serial.print("Estimated Days Left: ");
+  Serial.println(daysLeft);
+
+  // ---------------- LCD SCREEN 1 ----------------
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Weight: ");
+  lcd.print(lpgWeight, 1);
+  lcd.print("kg");
+
+  lcd.setCursor(0, 1);
+  lcd.print("LPG: ");
+  lcd.print(lpgLevel);
+
+  delay(3000);
+
+  // ---------------- LCD SCREEN 2 ----------------
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Days Left: ");
+  lcd.print(daysLeft);
+
+  lcd.setCursor(0, 1);
+  lcd.print("Prediction");
+
+  delay(3000);
+}
